@@ -1,0 +1,143 @@
+import { InfoMessage, SuccessMessage, WarningMessage, ErrorMessage } from "@/js/message.js"
+
+import { ElMessageBox } from 'element-plus'
+
+export function InfoMessage(msg) {
+    ElMessageBox.confirm(msg, 'Info', {
+        confirmButtonText: 'OK',
+        showCancelButton: false,
+        type: 'info',
+    })
+}
+
+export function SuccessMessage(msg) {
+    ElMessageBox.confirm(msg, 'Success', {
+        confirmButtonText: 'OK',
+        showCancelButton: false,
+        type: 'success',
+    })
+}
+
+export function WarningMessage(msg) {
+    ElMessageBox.confirm(msg, 'Warning', {
+        confirmButtonText: 'OK',
+        showCancelButton: false,
+        type: 'warning',
+    })
+}
+
+export function ErrorMessage(msg) {
+    ElMessageBox.confirm(msg, 'Error', {
+        confirmButtonText: 'OK',
+        showCancelButton: false,
+        type: 'error',
+    })
+}
+
+
+api.js
+import axios from 'axios';
+import { USER } from "@/js/constants";
+
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL;
+const accessToken = localStorage.getItem(USER.ACCESS_TOKEN);
+
+export default {
+  // 获取文档树结构
+  async getUserGuide() {
+    try {
+      if (!accessToken) {
+        throw new Error('No access token found');
+      }
+      const response = await axios.get(`${API_BASE_URL}/api/management/doc/get_all_user_guide`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error fetching tree data:', error);
+      throw error;
+    }
+  },
+
+  // 创建文档/目录
+  async createDocument(data) {
+    try {
+      if (!accessToken) {
+        throw new Error('No access token found');
+      }
+
+      const response = await axios.post(`${API_BASE_URL}/api/management/doc/create_document`, data, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error creating document:', error);
+      throw error;
+    }
+  },
+
+  // 编辑文档/目录
+  async editDocument(id, data) {
+    try {
+      if (!accessToken) {
+        throw new Error('No access token found');
+      }
+
+      const response = await axios.put(`${API_BASE_URL}/api/management/doc/edit_document/${id}`, data, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating document:', error);
+      throw error;
+    }
+  },
+
+  // 删除文档/目录
+  async deleteDocument(id) {
+    try {
+      if (!accessToken) {
+        throw new Error('No access token found');
+      }
+
+      await axios.delete(`${API_BASE_URL}/api/management/doc/delete_node/${id}`, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+    } catch (error) {
+      console.error('Error deleting document:', error);
+      throw error;
+    }
+  },
+
+  // 更新文档内容
+  async updateDocumentContent(id, data) {
+    try {
+      if (!accessToken) {
+        throw new Error('No access token found');
+      }
+
+      const response = await axios.put(`${API_BASE_URL}/api/management/doc/update_document_content/${id}`, data, {
+        headers: {
+          'Authorization': `Bearer ${accessToken}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      return response.data;
+    } catch (error) {
+      console.error('Error updating document content:', error);
+      throw error;
+    }
+  }
+};
