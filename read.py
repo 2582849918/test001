@@ -757,6 +757,7 @@ STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
 
     # 轮廓高亮：字幕轮廓黑色，基础文字白色，关键词青色
     "outline_highlight": {
+		"render_mode": "word_highlight",
         "font_size": 32,
         "base_color": (255, 255, 255, 255),
         "stroke_color": (0, 0, 0, 255),
@@ -775,6 +776,7 @@ STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
 
     # 区块强调 字体黄色，无描边，关键词黑色背景
     "block_highlight": {
+		"render_mode": "word_highlight",
         "font_size": 32,
         "base_color": (255, 255, 0, 255),
         "stroke_width": 0,
@@ -795,6 +797,7 @@ STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
 
     # 半透明 白色文字 黄色关键词 灰白色背景
     "semi_transparent": {
+		"render_mode": "word_highlight",
         "font_size": 20,
         "base_color": (255, 255, 255, 255),
         "highlight_text_color": (255, 255, 0, 255),
@@ -835,6 +838,7 @@ STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
 
     # 清新 白色文字 绿色关键词 白色背景
     "fresh": {
+		"render_mode": "word_highlight",
         "font_size": 32,
         "base_color": (255, 255, 255, 255),
         "highlight_text_color": (84, 255, 159, 255),
