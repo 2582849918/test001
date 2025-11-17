@@ -525,510 +525,6 @@ class VideoSubtitleApplier:
 
         return np.array(img)
 
-
-下述是我的字幕配置代码
-# subtitle_style_config.py
-
-from dataclasses import dataclass, field
-from typing import Tuple, Optional, List, Dict, Any
-
-# ==============================================================================
-#  1. 全局语言配置
-# ==============================================================================
-GLOBAL_FONT_TO_LANGUAGES: Dict[str, List[str]] = {
-    "NotoSansArabic-Bold.ttf":[
-        "en"
-    ],
-    "SourceHanSans.ttc": [
-        "zh", "zh-cn", "zh-tw", "zh-hk", # 中文 (简体, 繁体, 香港)
-        "ja", "ja-jp",                 # 日语
-        "ko", "ko-kr"                  # 韩语
-    ],
-    "NotoSansArabic-Bold.ttf": [
-        "ar",   # 阿拉伯语
-        "fa",   # 波斯语
-        "ur"    # 乌尔都语
-    ],
-    "arial.ttf": [
-        "en-us", "en-gb", # 英语
-        "fr", "fr-fr",          # 法语
-        "de", "de-de",          # 德语
-        "es", "es-es",          # 西班牙语
-        "it", "it-it",          # 意大利语
-        "pt", "pt-pt",          # 葡萄牙语
-        "ru", "ru-ru",          # 俄语
-        "uk", "uk-ua",          # 乌克兰语
-        "bg",                   # 保加利亚语
-        "sr",                   # 塞尔维亚语
-        "el",                   # 希腊语
-        "vi",                   # 越南语
-        "th",                   # 泰语
-        # ... 可以继续添加使用拉丁或西里尔字母的语言
-    ]
-}
-
-# 当语言在清单中找不到时，使用的默认字体
-DEFAULT_FONT = "NotoSans-Bold.ttf"
-
-def get_font_for_language(language: str,
-                          template_font_map: Optional[Dict[str, str]] = None,
-                          fallback_font_name: Optional[str] = None) -> str:
-    """
-    按优先级选择字体：
-    1) 模板级 font_map（精确匹配，其次主语言匹配）
-    2) 全局 GLOBAL_FONT_TO_LANGUAGES
-    3) fallback_font_name（通常为模板的 font_name）
-    4) DEFAULT_FONT
-    """
-    if not language:
-        return fallback_font_name or DEFAULT_FONT
-
-    lang_norm = language.lower().strip()
-
-    # 1) 模板级映射
-    if template_font_map:
-        # 先 exact（不区分大小写），再 base-lang
-        # exact
-        for k, v in template_font_map.items():
-            if lang_norm == k.lower():
-                return v
-        # base-lang
-        if '-' in lang_norm:
-            base = lang_norm.split('-')[0]
-            # 先 exact base；再尝试把 map 的 key 也拆 base 比较
-            for k, v in template_font_map.items():
-                if base == k.lower():
-                    return v
-            for k, v in template_font_map.items():
-                k_base = k.lower().split('-')[0]
-                if base == k_base:
-                    return v
-
-    # 2) 全局映射
-    for font, langs in GLOBAL_FONT_TO_LANGUAGES.items():
-        langs_lower = [x.lower() for x in langs]
-        if lang_norm in langs_lower:
-            return font
-    if '-' in lang_norm:
-        base = lang_norm.split('-')[0]
-        for font, langs in GLOBAL_FONT_TO_LANGUAGES.items():
-            langs_lower = [x.lower() for x in langs]
-            if base in langs_lower:
-                return font
-
-    # 3) fallback → 4) 默认
-    return fallback_font_name or DEFAULT_FONT
-
-@dataclass
-class SubtitleTemplate:
-    """
-    定义一个完整的字幕样式配置。
-    这个数据类代表了所有可用样式属性的集合，是最终应用到渲染逻辑中的形态。
-    """
-    # --- 字体与文本基础样式 ---
-    font_name: str                              # 字体文件名 (例如: "arial.ttf", "SourceHanSans.ttc")
-    font_size: int                              # 字体大小，单位为像素 (px)
-    base_color: Tuple[int, int, int, int]       # 普通文字颜色，格式为 (R, G, B, A)，A为透明度 (0-255)
-    font_style: str = "normal"                  # 字体样式: "normal" (普通), "bold" (粗体), "italic" (斜体)
-    opacity: float = 1.0                        # 字幕整体透明度 (1.0为完全不透明, 0.0为完全透明)
-    letter_spacing: int = 0                     # 字符间距，单位为像素
-    line_spacing: int = 0                       # 行间距，单位为像素
-    word_spacing_px: int = 0                    # --- 新增：单词间距（仅英文等按词分行语言有效），单位像素 ---
-    font_map: Optional[Dict[str, str]] = None   # --- 新增：模板级语言→字体映射（优先级最高） ---
-
-    # --- 描边样式 ---
-    stroke_color: Optional[Tuple[int, int, int, int]] = None  # 描边颜色 (R, G, B, A)
-    stroke_width: int = 0                                     # 描边宽度，单位为像素
-
-    # --- 投影（drop shadow）新配置 ---
-    enable_drop_shadow: bool = False   
-    drop_shadow_color: Optional[Tuple[int, int, int, int]] = None  # 阴影颜色含透明度
-    drop_shadow_offset: Tuple[int, int] = (0, 0)  # 阴影偏移（x, y）
-    drop_shadow_blur: int = 0  # 高斯模糊半径
-
-    # --- 阴影样式 ---
-    shadow_color: Optional[Tuple[int, int, int, int]] = None  # 阴影颜色 (R, G, B, A)
-    shadow_offset: Tuple[int, int] = (0, 0)  # 阴影偏移 (水平x, 垂直y)，单位为像素
-    shadow_blur: int = 0  # 阴影模糊半径
-
-    # --- 全局背景样式 (作用于所有字幕) ---
-    bg_color: Optional[Tuple[int, int, int, int]] = None  # 背景颜色 (R, G, B, A)
-    bg_padding_x: int = 0  # 背景左右内边距(字幕距离背景左右的距离)
-    bg_padding_y: int = 0  # 背景上下内边距(字幕距离背景上下的距离)
-    bg_radius: int = 8  # 背景圆角半径 (0为直角)
-    bg_border_color: Optional[Tuple[int, int, int, int]] = None  # 背景边框颜色 (R, G, B, A)
-    bg_border_width: int = 0  # 背景边框宽度
-    bg_max_width: Optional[int] = None  # 背景最大宽度，超出则换行
-
-    # --- 布局与定位 ---
-    writing_mode: str = "horizontal"  # 文本书写模式: "horizontal" (横排), "vertical" (竖排)
-
-    # --- 关键词特殊样式 (用于覆盖基础样式) ---
-    # --- 高亮样式 (用于覆盖基础样式) ---
-    highlight_text_color: Optional[Tuple[int, int, int, int]] = None       # 高亮文字颜色
-    highlight_bg_color: Optional[Tuple[int, int, int, int]] = None         # 高亮背景颜色
-    highlight_stroke_color: Optional[Tuple[int, int, int, int]] = None     # 高亮描边颜色
-    highlight_stroke_width: Optional[int] = None                           # 高亮描边宽度
-    highlight_font_style: Optional[str] = None                             # 高亮字体样式
-    highlight_bg_padding_x: int = 0                                        # 高亮背景左右内边距
-    highlight_bg_padding_y: int = 0                                        # 高亮背景上下内边距
-
-    # --- 3D阴影样式 ---
-    is_3d_shadow: bool = False          # 是否启用3D阴影效果
-    shadow_layers: int = 5              # 3D阴影层数（默认5层）
-    shadow_step: Tuple[int, int] = (2, 2)  # 每层阴影的步进偏移量
-
-# ==============================================================================
-# 1. 基础模板：定义所有属性的默认值 (Single Source of Truth)
-#    这是所有自定义模板的基础，修改这里会影响所有未指定该属性的模板。
-# ==============================================================================
-DEFAULT_TEMPLATE = SubtitleTemplate(
-    font_name="SourceHanSansCN-Normal",                 # 默认字体为 Arial
-    font_size=32,                          # 默认字号为 32px
-    base_color=(255, 255, 255, 255),       # 默认文字颜色为纯白色
-    stroke_color=(0, 0, 0, 200),           # 默认带有轻微的半透明黑色描边，以增强在各种背景下的可读性
-    stroke_width=0,                        # 默认描边宽度为 2px
-    line_spacing=0,                        # 默认行间距为 5px
-    word_spacing_px=0,
-    # 所有其他未在此处指定的属性，都将使用上面 SubtitleTemplate dataclass 中定义的默认值。
-)
-
-# ==============================================================================
-# 2. 样式库：现在只包含“客制化”的覆盖属性 (简洁、清晰)
-#    这里的每一项都是一个字典，只定义与 DEFAULT_TEMPLATE 不同的地方。
-# ==============================================================================
-STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
-    # "默认" 样式，它直接使用基础模板，因此客制化部分为空字典。
-    "default": {},
-    
-    # 经典黑条：白字 + 黑底。
-    "classic_black": {
-        "font_size": 32,
-        "stroke_width": 0,
-        "bg_color": (0, 0, 0, 220),
-        "bg_radius": 0,
-        "bg_padding_x": 10, # 背景左右内边距(字幕距离背景左右的距离)
-        "bg_padding_y": 8, # 背景上下内边距(字幕距离背景上下的距离)
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 经典白条：黑字 + 圆角白底
-    "classic_white": {
-        "font_size": 32,
-        "base_color": (0, 0, 0, 255),
-        "stroke_width": 0,
-        "bg_color": (255, 255, 255, 255),
-        "bg_padding_x": 10,
-        "bg_padding_y": 8,
-        "bg_radius": 8,
-        "word_spacing_px": 5,
-        "line_spacing": 15,
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-    
-    # 边框：白字 + 黑色描边，无背景
-    "border": {
-        "font_size": 32,
-        "base_color": (255, 255, 255, 255),
-        "stroke_color": (0, 0, 0, 255),
-        "stroke_width": 4,
-        "shadow_color": (0, 0, 0, 180),
-        "word_spacing_px": 5,
-        "line_spacing": 15,
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 轮廓高亮：字幕轮廓黑色，基础文字白色，关键词青色
-    "outline_highlight": {
-		"render_mode": "word_highlight",
-        "font_size": 32,
-        "base_color": (255, 255, 255, 255),
-        "stroke_color": (0, 0, 0, 255),
-        "stroke_width": 3,
-        "word_spacing_px": 5,
-        "highlight_text_color": (0, 255, 170, 255),
-        "highlight_stroke_color": (0, 0, 0, 255),
-        "line_spacing": 15,
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 区块强调 字体黄色，无描边，关键词黑色背景
-    "block_highlight": {
-		"render_mode": "word_highlight",
-        "font_size": 32,
-        "base_color": (255, 255, 0, 255),
-        "stroke_width": 0,
-        "highlight_text_color": (255, 255, 0, 255),
-        "highlight_bg_color": (0, 0, 0, 255), 
-        "highlight_bg_padding_y": 10,
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 半透明 白色文字 黄色关键词 灰白色背景
-    "semi_transparent": {
-		"render_mode": "word_highlight",
-        "font_size": 20,
-        "base_color": (255, 255, 255, 255),
-        "highlight_text_color": (255, 255, 0, 255),
-        "highlight_bg_color": (0, 0, 0, 180),
-        "bg_color": (0, 0, 0, 180),
-        "bg_radius": 8,
-        "bg_padding_x": 10,
-        "bg_padding_y": 8,
-        "word_spacing_px": 5, # 单词间距
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 黑暗 白色文字 绿色关键词 黑色背景
-    "dark": {
-        "font_size": 20,
-        "base_color": (255, 255, 255, 255),
-        "highlight_text_color": (0, 255, 0, 255),
-        "highlight_bg_color": (0, 0, 0, 255),
-        "bg_color": (0, 0, 0, 255),
-        "bg_radius": 8,
-        "word_spacing_px": 5, # 单词间距
-        "bg_padding_x": 10,
-        "bg_padding_y": 8,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 清新 白色文字 绿色关键词 白色背景
-    "fresh": {
-		"render_mode": "word_highlight",
-        "font_size": 32,
-        "base_color": (255, 255, 255, 255),
-        "highlight_text_color": (84, 255, 159, 255),
-        "word_spacing_px": 5, # 单词间距    
-        # 开启投影（柔和）
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "drop_shadow_blur": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        },            
-    },
-
-    # 白条式高亮 黑色文字 蓝色关键词 白色背景
-    "white_highlight": {
-        "font_size": 20,
-        "base_color": (0, 0, 0, 255),
-        "bg_color": (255, 255, 255, 255),
-        "highlight_text_color": (56, 30, 215, 255),
-        "bg_padding_x": 10,
-        "bg_padding_y": 8,
-        "drop_shadow_blur": 5,
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 柠檬 ：黄色字体
-    "lemon": {
-        "font_size": 20,
-        "drop_shadow_blur": 5,
-        "base_color": (255, 255, 0, 255),
-        # 开启投影（柔和）
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "drop_shadow_blur": 5,
-        # 描边
-        "stroke_color": (0, 0, 0, 255),
-        "stroke_width": 2,
-        # 字间距
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }        
-    },
-
-    # 倾斜：白色字体，带有黑色描边和阴影（模仿图片效果）
-    "italic": {
-        "font_size": 36,
-        "base_color": (255, 255, 255, 255), # **文字颜色：白色**
-        "stroke_color": (0, 0, 0, 255),
-        "stroke_width": 2,
-        # 开启投影（柔和）
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "drop_shadow_blur": 5,
-        # 描边
-        "stroke_color": (0, 0, 0, 255),
-        "stroke_width": 2,
-        # 字间距
-        "line_spacing": 15,        
-        "word_spacing_px": 5,
-        "font_map": {
-            "en": "Rubik-BoldItalic.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }         
-    },
-
-    # 阴影区块强调 白色字体 白色关键词 粉色背景
-    "shadow_block_highlight": {
-        "font_size": 20,
-        "base_color": (255, 255, 255, 255),
-        "highlight_text_color": (255, 255, 255, 255),
-        "highlight_bg_color": (210, 144, 243, 255),
-        # 开启投影（柔和）
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "drop_shadow_blur": 5,
-        "line_spacing": 15,        
-        # 关键词上下距离
-        "highlight_bg_padding_y": 8,
-        # 字间距
-        "word_spacing_px": 5,
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }  
-    },
-
-    # 霓虹
-    "neon": {
-        "font_size": 20,
-        "shadow_offset": (0, 0),
-        "base_color": (247, 148, 227, 255),             # 文本颜色设置为亮粉色 (Hot Pink)**
-        "shadow_color": (255, 105, 180, 255),           # 阴影颜色设置为亮粉色 (Hot Pink)** 
-        "shadow_blur": 10,
-        # 开启投影（柔和）
-        "enable_drop_shadow": True,
-        "drop_shadow_color": (0, 0, 0, 200),
-        "drop_shadow_offset": (2, 4),
-        "drop_shadow_blur": 5,
-        # 字间距
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }             
-    },
-
-    # 3D 阴影
-    "3d_shadow": {
-        "font_size": 20,
-        "base_color": (0, 0, 0, 255),   # 黑色主文字
-        "stroke_color": (100, 232, 123, 255),       # 绿色
-        "stroke_width": 2,
-        "is_3d_shadow": True,                 # 启用3D效果
-        "shadow_layers": 3,                   # 8层阴影，立体感更强
-        "shadow_step": [0, 2],                # 每层向右下偏移3像素
-        "shadow_blur": 0,                     # 3D效果不需要模糊
-        # 字间距
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }
-    },
-
-    # 白色轮廓 ：白色轮廓 黑色字体
-    "white_outline": {
-        "font_size": 20,
-        "base_color": (0, 0, 0, 255),
-        "stroke_color": (255, 255, 255, 255),
-        "stroke_width": 3,
-        # 字间距
-        "word_spacing_px": 5,
-        "line_spacing": 15,        
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }  
-    },
-
-    # 聚光灯区块强调 白色字体 黄色关键词 白色背景
-    "spotlight_block_highlight": {
-        "font_size": 20,
-        "base_color": (255, 255, 255, 255),
-        "highlight_text_color": (0, 0, 0, 255),
-        "highlight_bg_color": (52, 241, 139, 255),
-        "highlight_bg_padding_y": 10,
-        "line_spacing": 15,
-        # 字间距
-        "word_spacing_px": 5,
-        "font_map": {
-            "en": "Rubik-Bold.ttf",
-            "zh-CN": "SourceHanSansCN-Bold.otf",
-            "thai":"NotoSansThai-Bold.ttf",
-            "arabic": "NotoSansArabic-Bold.ttf"
-        }  
-    },
-}
-
 字幕位置配置
 # 字幕位置配置
 # subtitle_position_config.py
@@ -1212,9 +708,517 @@ VIDEO_SPEC_CONFIG: Dict[str, Dict[str, Any]] = {
     ]
 }
 
+下述是我的字幕配置代码
+# subtitle_style_config.py
+
+from dataclasses import dataclass, field
+from typing import Tuple, Optional, List, Dict, Any
+
+# ==============================================================================
+#  1. 全局语言配置
+# ==============================================================================
+GLOBAL_FONT_TO_LANGUAGES: Dict[str, List[str]] = {
+    "NotoSansArabic-Bold.ttf":[
+        "en"
+    ],
+    "SourceHanSans.ttc": [
+        "zh", "zh-cn", "zh-tw", "zh-hk", # 中文 (简体, 繁体, 香港)
+        "ja", "ja-jp",                 # 日语
+        "ko", "ko-kr"                  # 韩语
+    ],
+    "NotoSansArabic-Bold.ttf": [
+        "ar",   # 阿拉伯语
+        "fa",   # 波斯语
+        "ur"    # 乌尔都语
+    ],
+    "arial.ttf": [
+        "en-us", "en-gb", # 英语
+        "fr", "fr-fr",          # 法语
+        "de", "de-de",          # 德语
+        "es", "es-es",          # 西班牙语
+        "it", "it-it",          # 意大利语
+        "pt", "pt-pt",          # 葡萄牙语
+        "ru", "ru-ru",          # 俄语
+        "uk", "uk-ua",          # 乌克兰语
+        "bg",                   # 保加利亚语
+        "sr",                   # 塞尔维亚语
+        "el",                   # 希腊语
+        "vi",                   # 越南语
+        "th",                   # 泰语
+        # ... 可以继续添加使用拉丁或西里尔字母的语言
+    ]
+}
+
+# 当语言在清单中找不到时，使用的默认字体
+DEFAULT_FONT = "NotoSans-Bold.ttf"
+
+def get_font_for_language(language: str,
+                          template_font_map: Optional[Dict[str, str]] = None,
+                          fallback_font_name: Optional[str] = None) -> str:
+    """
+    按优先级选择字体：
+    1) 模板级 font_map（精确匹配，其次主语言匹配）
+    2) 全局 GLOBAL_FONT_TO_LANGUAGES
+    3) fallback_font_name（通常为模板的 font_name）
+    4) DEFAULT_FONT
+    """
+    if not language:
+        return fallback_font_name or DEFAULT_FONT
+
+    lang_norm = language.lower().strip()
+
+    # 1) 模板级映射
+    if template_font_map:
+        # 先 exact（不区分大小写），再 base-lang
+        # exact
+        for k, v in template_font_map.items():
+            if lang_norm == k.lower():
+                return v
+        # base-lang
+        if '-' in lang_norm:
+            base = lang_norm.split('-')[0]
+            # 先 exact base；再尝试把 map 的 key 也拆 base 比较
+            for k, v in template_font_map.items():
+                if base == k.lower():
+                    return v
+            for k, v in template_font_map.items():
+                k_base = k.lower().split('-')[0]
+                if base == k_base:
+                    return v
+
+    # 2) 全局映射
+    for font, langs in GLOBAL_FONT_TO_LANGUAGES.items():
+        langs_lower = [x.lower() for x in langs]
+        if lang_norm in langs_lower:
+            return font
+    if '-' in lang_norm:
+        base = lang_norm.split('-')[0]
+        for font, langs in GLOBAL_FONT_TO_LANGUAGES.items():
+            langs_lower = [x.lower() for x in langs]
+            if base in langs_lower:
+                return font
+
+    # 3) fallback → 4) 默认
+    return fallback_font_name or DEFAULT_FONT
+
+@dataclass
+class SubtitleTemplate:
+    """
+    定义一个完整的字幕样式配置。
+    这个数据类代表了所有可用样式属性的集合，是最终应用到渲染逻辑中的形态。
+    """
+    # --- 字体与文本基础样式 ---
+    font_name: str                              # 字体文件名 (例如: "arial.ttf", "SourceHanSans.ttc")
+    font_size: int                              # 字体大小，单位为像素 (px)
+    base_color: Tuple[int, int, int, int]       # 普通文字颜色，格式为 (R, G, B, A)，A为透明度 (0-255)
+    font_style: str = "normal"                  # 字体样式: "normal" (普通), "bold" (粗体), "italic" (斜体)
+    opacity: float = 1.0                        # 字幕整体透明度 (1.0为完全不透明, 0.0为完全透明)
+    letter_spacing: int = 0                     # 字符间距，单位为像素
+    line_spacing: int = 0                       # 行间距，单位为像素
+    word_spacing_px: int = 0                    # --- 新增：单词间距（仅英文等按词分行语言有效），单位像素 ---
+    font_map: Optional[Dict[str, str]] = None   # --- 新增：模板级语言→字体映射（优先级最高） ---
+
+    # --- 描边样式 ---
+    stroke_color: Optional[Tuple[int, int, int, int]] = None  # 描边颜色 (R, G, B, A)
+    stroke_width: int = 0                                     # 描边宽度，单位为像素
+
+    # --- 投影（drop shadow）新配置 ---
+    enable_drop_shadow: bool = False   
+    drop_shadow_color: Optional[Tuple[int, int, int, int]] = None  # 阴影颜色含透明度
+    drop_shadow_offset: Tuple[int, int] = (0, 0)  # 阴影偏移（x, y）
+    drop_shadow_blur: int = 0  # 高斯模糊半径
+
+    # --- 阴影样式 ---
+    shadow_color: Optional[Tuple[int, int, int, int]] = None  # 阴影颜色 (R, G, B, A)
+    shadow_offset: Tuple[int, int] = (0, 0)  # 阴影偏移 (水平x, 垂直y)，单位为像素
+    shadow_blur: int = 0  # 阴影模糊半径
+
+    # --- 全局背景样式 (作用于所有字幕) ---
+    bg_color: Optional[Tuple[int, int, int, int]] = None  # 背景颜色 (R, G, B, A)
+    bg_padding_x: int = 0  # 背景左右内边距(字幕距离背景左右的距离)
+    bg_padding_y: int = 0  # 背景上下内边距(字幕距离背景上下的距离)
+    bg_radius: int = 8  # 背景圆角半径 (0为直角)
+    bg_border_color: Optional[Tuple[int, int, int, int]] = None  # 背景边框颜色 (R, G, B, A)
+    bg_border_width: int = 0  # 背景边框宽度
+    bg_max_width: Optional[int] = None  # 背景最大宽度，超出则换行
+
+    # --- 布局与定位 ---
+    writing_mode: str = "horizontal"  # 文本书写模式: "horizontal" (横排), "vertical" (竖排)
+
+    # --- 高亮样式 (用于覆盖基础样式) ---
+    highlight_text_color: Optional[Tuple[int, int, int, int]] = None       # 高亮文字颜色
+    highlight_bg_color: Optional[Tuple[int, int, int, int]] = None         # 高亮背景颜色
+    highlight_stroke_color: Optional[Tuple[int, int, int, int]] = None     # 高亮描边颜色
+    highlight_stroke_width: Optional[int] = None                           # 高亮描边宽度
+    highlight_font_style: Optional[str] = None                             # 高亮字体样式
+    highlight_bg_padding_x: int = 0                                        # 高亮背景左右内边距
+    highlight_bg_padding_y: int = 0                                        # 高亮背景上下内边距
+
+    # --- 3D阴影样式 ---
+    is_3d_shadow: bool = False          # 是否启用3D阴影效果
+    shadow_layers: int = 5              # 3D阴影层数（默认5层）
+    shadow_step: Tuple[int, int] = (2, 2)  # 每层阴影的步进偏移量
+
+# ==============================================================================
+# 1. 基础模板：定义所有属性的默认值 (Single Source of Truth)
+#    这是所有自定义模板的基础，修改这里会影响所有未指定该属性的模板。
+# ==============================================================================
+DEFAULT_TEMPLATE = SubtitleTemplate(
+    font_name="SourceHanSansCN-Normal",                 # 默认字体为 Arial
+    font_size=32,                          # 默认字号为 32px
+    base_color=(255, 255, 255, 255),       # 默认文字颜色为纯白色
+    stroke_color=(0, 0, 0, 200),           # 默认带有轻微的半透明黑色描边，以增强在各种背景下的可读性
+    stroke_width=0,                        # 默认描边宽度为 2px
+    line_spacing=0,                        # 默认行间距为 5px
+    word_spacing_px=0,
+    # 所有其他未在此处指定的属性，都将使用上面 SubtitleTemplate dataclass 中定义的默认值。
+)
+
+# ==============================================================================
+# 2. 样式库：现在只包含“客制化”的覆盖属性 (简洁、清晰)
+#    这里的每一项都是一个字典，只定义与 DEFAULT_TEMPLATE 不同的地方。
+# ==============================================================================
+STYLE_LIBRARY: Dict[str, Dict[str, Any]] = {
+    # "默认" 样式，它直接使用基础模板，因此客制化部分为空字典。
+    "default": {},
+    
+    # 经典黑条：白字 + 黑底。
+    "classic_black": {
+        "font_size": 32,
+        "stroke_width": 0,
+        "bg_color": (0, 0, 0, 220),
+        "bg_radius": 0,
+        "bg_padding_x": 10, # 背景左右内边距(字幕距离背景左右的距离)
+        "bg_padding_y": 8, # 背景上下内边距(字幕距离背景上下的距离)
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 经典白条：黑字 + 圆角白底
+    "classic_white": {
+        "font_size": 32,
+        "base_color": (0, 0, 0, 255),
+        "stroke_width": 0,
+        "bg_color": (255, 255, 255, 255),
+        "bg_padding_x": 10,
+        "bg_padding_y": 8,
+        "bg_radius": 8,
+        "word_spacing_px": 5,
+        "line_spacing": 15,
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+    
+    # 边框：白字 + 黑色描边，无背景
+    "border": {
+        "font_size": 32,
+        "base_color": (255, 255, 255, 255),
+        "stroke_color": (0, 0, 0, 255),
+        "stroke_width": 4,
+        "shadow_color": (0, 0, 0, 180),
+        "word_spacing_px": 5,
+        "line_spacing": 15,
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 轮廓高亮：字幕轮廓黑色，基础文字白色，关键词青色
+    "outline_highlight": {
+        "render_mode": "word_highlight",
+        "font_size": 32,
+        "base_color": (255, 255, 255, 255),
+        "stroke_color": (0, 0, 0, 255),
+        "stroke_width": 3,
+        "word_spacing_px": 5,
+        "highlight_text_color": (0, 255, 170, 255),
+        "highlight_stroke_color": (0, 0, 0, 255),
+        "line_spacing": 15,
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 区块强调 字体黄色，无描边，关键词黑色背景
+    "block_highlight": {
+        "render_mode": "word_highlight",
+        "font_size": 32,
+        "base_color": (255, 255, 0, 255),
+        "stroke_width": 0,
+        "highlight_text_color": (255, 255, 0, 255),
+        "highlight_bg_color": (0, 0, 0, 255), 
+        "highlight_bg_padding_y": 10,
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 半透明 白色文字 黄色关键词 灰白色背景
+    "semi_transparent": {
+        "render_mode": "word_highlight",
+        "font_size": 20,
+        "base_color": (255, 255, 255, 255),
+        "highlight_text_color": (255, 255, 0, 255),
+        "highlight_bg_color": (0, 0, 0, 180),
+        "bg_color": (0, 0, 0, 180),
+        "bg_radius": 8,
+        "bg_padding_x": 10,
+        "bg_padding_y": 8,
+        "word_spacing_px": 5, # 单词间距
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 黑暗 白色文字 绿色关键词 黑色背景
+    "dark": {
+        "render_mode": "word_highlight",
+        "font_size": 20,
+        "base_color": (255, 255, 255, 255),
+        "highlight_text_color": (0, 255, 0, 255),
+        "highlight_bg_color": (0, 0, 0, 255),
+        "bg_color": (0, 0, 0, 255),
+        "bg_radius": 8,
+        "word_spacing_px": 5, # 单词间距
+        "bg_padding_x": 10,
+        "bg_padding_y": 8,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 清新 白色文字 绿色关键词 白色背景
+    "fresh": {
+        "render_mode": "word_highlight",
+        "font_size": 32,
+        "base_color": (255, 255, 255, 255),
+        "highlight_text_color": (84, 255, 159, 255),
+        "word_spacing_px": 5, # 单词间距    
+        # 开启投影（柔和）
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "drop_shadow_blur": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        },            
+    },
+
+    # 白条式高亮 黑色文字 蓝色关键词 白色背景
+    "white_highlight": {
+        "render_mode": "word_highlight",
+        "font_size": 20,
+        "base_color": (0, 0, 0, 255),
+        "bg_color": (255, 255, 255, 255),
+        "highlight_text_color": (56, 30, 215, 255),
+        "bg_padding_x": 10,
+        "bg_padding_y": 8,
+        "drop_shadow_blur": 5,
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 柠檬 ：黄色字体
+    "lemon": {
+        "font_size": 20,
+        "drop_shadow_blur": 5,
+        "base_color": (255, 255, 0, 255),
+        # 开启投影（柔和）
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "drop_shadow_blur": 5,
+        # 描边
+        "stroke_color": (0, 0, 0, 255),
+        "stroke_width": 2,
+        # 字间距
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }        
+    },
+
+    # 倾斜：白色字体，带有黑色描边和阴影（模仿图片效果）
+    "italic": {
+        "font_size": 36,
+        "base_color": (255, 255, 255, 255), # **文字颜色：白色**
+        "stroke_color": (0, 0, 0, 255),
+        "stroke_width": 2,
+        # 开启投影（柔和）
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "drop_shadow_blur": 5,
+        # 描边
+        "stroke_color": (0, 0, 0, 255),
+        "stroke_width": 2,
+        # 字间距
+        "line_spacing": 15,        
+        "word_spacing_px": 5,
+        "font_map": {
+            "en": "Rubik-BoldItalic.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }         
+    },
+
+    # 阴影区块强调 白色字体 白色关键词 粉色背景
+    "shadow_block_highlight": {
+        "render_mode": "word_highlight",
+        "font_size": 20,
+        "base_color": (255, 255, 255, 255),
+        "highlight_text_color": (255, 255, 255, 255),
+        "highlight_bg_color": (210, 144, 243, 255),
+        # 开启投影（柔和）
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "drop_shadow_blur": 5,
+        "line_spacing": 15,        
+        # 关键词上下距离
+        "highlight_bg_padding_y": 8,
+        # 字间距
+        "word_spacing_px": 5,
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }  
+    },
+
+    # 霓虹
+    "neon": {
+        "font_size": 20,
+        "shadow_offset": (0, 0),
+        "base_color": (247, 148, 227, 255),             # 文本颜色设置为亮粉色 (Hot Pink)**
+        "shadow_color": (255, 105, 180, 255),           # 阴影颜色设置为亮粉色 (Hot Pink)** 
+        "shadow_blur": 10,
+        # 开启投影（柔和）
+        "enable_drop_shadow": True,
+        "drop_shadow_color": (0, 0, 0, 200),
+        "drop_shadow_offset": (2, 4),
+        "drop_shadow_blur": 5,
+        # 字间距
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }             
+    },
+
+    # 3D 阴影
+    "3d_shadow": {
+        "font_size": 20,
+        "base_color": (0, 0, 0, 255),   # 黑色主文字
+        "stroke_color": (100, 232, 123, 255),       # 绿色
+        "stroke_width": 2,
+        "is_3d_shadow": True,                 # 启用3D效果
+        "shadow_layers": 3,                   # 8层阴影，立体感更强
+        "shadow_step": [0, 2],                # 每层向右下偏移3像素
+        "shadow_blur": 0,                     # 3D效果不需要模糊
+        # 字间距
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }
+    },
+
+    # 白色轮廓 ：白色轮廓 黑色字体
+    "white_outline": {
+        "font_size": 20,
+        "base_color": (0, 0, 0, 255),
+        "stroke_color": (255, 255, 255, 255),
+        "stroke_width": 3,
+        # 字间距
+        "word_spacing_px": 5,
+        "line_spacing": 15,        
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }  
+    },
+
+    # 聚光灯区块强调 白色字体 黄色关键词 白色背景
+    "spotlight_block_highlight": {
+        "render_mode": "word_highlight",
+        "font_size": 20,
+        "base_color": (255, 255, 255, 255),
+        "highlight_text_color": (0, 0, 0, 255),
+        "highlight_bg_color": (52, 241, 139, 255),
+        "highlight_bg_padding_y": 10,
+        "line_spacing": 15,
+        # 字间距
+        "word_spacing_px": 5,
+        "font_map": {
+            "en": "Rubik-Bold.ttf",
+            "zh-CN": "SourceHanSansCN-Bold.otf",
+            "thai":"NotoSansThai-Bold.ttf",
+            "arabic": "NotoSansArabic-Bold.ttf"
+        }  
+    },
+}
+
 现在我需要你基于我的现有的代码帮我完成一个需求
-模版中如果有高亮相关的这个参数配置，逐词时间戳或单条字幕时间戳你可以从这个
-json中获取到
+我会在模版中配置"render_mode": "word_highlight",
+如果模版中有"render_mode": "word_highlight",这个,就表示这个字幕
+需要逐词高亮显示
+
 模版中如：
         "highlight_text_color": (0, 255, 170, 255),
         "highlight_stroke_color": (0, 0, 0, 255),
@@ -1222,8 +1226,10 @@ json中获取到
         "highlight_text_color": (255, 255, 0, 255),
         "highlight_bg_color": (0, 0, 0, 255), 
         "highlight_bg_padding_y": 10,
-这些需要高亮的(逐词高亮)，一个单词，或一个中文字符这种样式，就像歌词那种，
-变化，比如一个字幕是This is another line with some text.
-那么开始This 变成关键词样式，然后is 变成关键词样式, This 恢复原来的样式
-但还是现在我的代码，绘制不上去，没有达到我要的效果，请帮我解决
+那么逐词时，高亮的部分就使用highlight_这些样式，不需要高亮的就使用模版中的基础样式
+比如  My is sun 当模版中设置了word_highlight，my使用了高亮样式后，下一个is使用高亮
+my恢复模版中的基础样式
+逐词时间戳或单条字幕时间戳你可以从这个传入的input_srt_path,这个json中获取到
+字幕语言你可以从original_language中获取
+注意现在没有关键词这个概念了
 
